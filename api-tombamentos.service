@@ -1,0 +1,22 @@
+[Unit]
+Description=API Tombamentos - TRE-CE
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=tre
+WorkingDirectory=/home/tre/Área de trabalho/Backend
+ExecStart=/home/tre/.nvm/versions/node/v24.11.0/bin/npm start
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=api-tombamentos
+
+# Variáveis de ambiente (opcional - se não quiser usar .env)
+Environment=NODE_ENV=production
+Environment=PATH=/home/tre/.nvm/versions/node/v24.11.0/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

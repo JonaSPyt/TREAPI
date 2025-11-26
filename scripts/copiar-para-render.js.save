@@ -1,0 +1,106 @@
+
+node scripts/copiar-para-render.js#!/usr/bin/env node
+
+// Script para copiar dados do banco corporativo para o banco Render
+require('dotenv').config();
+const { Pool } = require('pg');
+const fs = require('fs');
+
+// Banco ORIGEM (corporativo)
+const poolOrigem = new Pool({
+  host: 'cevmbd03.tre-ce.gov.br',
+  port: 5432,
+  user: 'inventario_patrimonial',
+  password: '704737e2a0',
+  database: 'desenpg',
+});
+
+// Banco DESTINO (Render) - VOCÊ VAI PREENCHER COM AS CREDENCIAIS DO RENDER
+const poolDestino = new Pool({
+  host: 'SEU_HOST_RENDER.oregon-postgres.render.com',
+  port: 5432,
+  user: 'SEU_USUARIO_RENDER',
+  password: 'SUA_SENHA_RENDER',
+  database: 'tombamentos',
+  ssl: { rejectUnauthorized: false } // Render exige SSL
+});
+
+async function copiarDados() {
+  console.log('🔄 Iniciando cópia de dados...\n');
+
+  try {
+    // 1. Exportar dados do banco corporativo
+    console.log('📤 Exportando dados do banco corporativo...');
+    const resultado = await poolOrigem.query('SELECT * FROM tombamentos ORDER BY id');
+    const tombamentos = resultado.rows;
+    console.log(`✅ ${tombamentos.length} tombamentos encontrados\n`);
+
+    // 2. Criar tabela no banco Render (se não existir)
+    console.log('📝 Criando estrutura da tabela no Render...');
+    await poolDestino.query(`
+      CREATE TABLE IF NOT EXISTS tombamentos (
+        id SERIAL PRIMARY KEY,
+        codigo VARCHAR(50) NOT NULL UNIQUE,
+        descricao VARCHAR(500) NOT NULL,
+        localizacao VARCHAR(255),
+        oldcode VARCHAR(50),
+        valor DECIMAL(15, 2),
+        status INTEGER DEFAULT 1,
+        foto VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Tabela criada/verificada\n');
+
+    // 3. Limpar dados antigos (opcional)
+    console.log('🗑️  Limpando dados antigos...');
+    await poolDestino.query('DELETE FROM tombamentos');
+    console.log('✅ Dados antigos removidos\n');
+
+    // 4. Inserir dados no banco Render
+    console.log('📥 Inserindo dados no Render...');
+    let inseridos = 0;
+    
+    for (const tomb of tombamentos) {
+      try {
+        await poolDestino.query(
+          `INSERT INTO tombamentos (codigo, descricao, localizacao, oldcode, valor, status, foto, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            tomb.codigo,
+            tomb.descricao,
+            tomb.localizacao,
+            tomb.oldcode,
+            tomb.valor,
+            tomb.status,
+            tomb.foto,
+            tomb.created_at,
+            tomb.updated_at
+          ]
+        );
+        inseridos++;
+        process.stdout.write(`\r   Inserindo: ${inseridos}/${tombamentos.length}`);
+      } catch (error) {
+        console.error(`\n❌ Erro ao inserir tombamento ${tomb.codigo}:`, error.message);
+      }
+    }
+
+    console.log('\n\n✅ Cópia concluída com sucesso!');
+    console.log(`   Total copiado: ${inseridos} tombamentos`);
+
+    // 5. Verificar resultado
+    const verificacao = await poolDestino.query('SELECT COUNT(*) as total FROM tombamentos');
+    console.log(`\n📊 Tombamentos no banco Render: ${verificacao.rows[0].total}`);
+
+  } catch (error) {
+    console.error('❌ Erro:', error.message);
+    console.error('Stack:', error.stack);
+    process.exit(1);
+  } finally {
+    await poolOrigem.end();
+    await poolDestino.end();
+  }
+}
+
+copiarDados();
