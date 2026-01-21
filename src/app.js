@@ -200,6 +200,59 @@ app.delete('/tombamentos/:id', async (req, res) => {
   }
 });
 
+// DELETE foto do tombamento (remove apenas a foto, não o tombamento)
+app.delete('/tombamentos/:id/foto', async (req, res) => {
+  const { id } = req.params;
+
+  console.log('=== DELETAR FOTO ===');
+  console.log('ID do tombamento:', id);
+
+  try {
+    // Buscar tombamento para pegar o nome da foto
+    const result = await pool.query('SELECT foto FROM tombamentos WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tombamento não encontrado' });
+    }
+
+    const tombamento = result.rows[0];
+    
+    if (!tombamento.foto) {
+      return res.status(400).json({ error: 'Este tombamento não possui foto' });
+    }
+
+    // Extrair nome do arquivo da URL (/uploads/foto.jpg -> foto.jpg)
+    const filename = tombamento.foto.replace('/uploads/', '');
+    const filePath = path.join(uploadsDir, filename);
+
+    // Deletar arquivo físico
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log('🗑️  Arquivo deletado:', filename);
+      } catch (error) {
+        console.error('Erro ao deletar arquivo:', error);
+        // Continua mesmo se falhar ao deletar o arquivo físico
+      }
+    }
+
+    // Atualizar banco (remove foto)
+    const updateResult = await pool.query(
+      'UPDATE tombamentos SET foto = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    console.log('✅ Foto removida com sucesso!');
+    res.json({ 
+      message: 'Foto deletada com sucesso', 
+      tombamento: updateResult.rows[0] 
+    });
+  } catch (error) {
+    console.error('❌ Erro ao deletar foto:', error);
+    res.status(500).json({ error: 'Erro ao deletar foto', detail: error.message });
+  }
+});
+
 // POST upload foto do tombamento
 app.post('/tombamentos/:id/foto', (req, res) => {
   // Handler customizado do multer para capturar erros
